@@ -5,6 +5,12 @@
       "maxDuration": 60
     }
   },
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/app.py"
+    }
+  ],
   "crons": [
     {
       "path": "/api/cron/update-weather",
