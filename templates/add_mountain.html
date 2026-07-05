@@ -1,0 +1,51 @@
+{% extends 'base.html' %} {% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            
+            <a href="/dashboard" class="btn btn-outline-secondary mb-3">&larr; Kembali ke Dashboard</a>
+
+            <div class="card shadow-sm">
+                <div class="card-header bg-dark text-white">
+                    <h5 class="mb-0">⛰️ Tambah Data Gunung Baru</h5>
+                </div>
+                <div class="card-body">
+                    <form action="/admin/mountains/add" method="POST" enctype="multipart/form-data">
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Nama Gunung</label>
+                            <input type="text" name="name" class="form-control" placeholder="Misal: Gunung Merbabu" required>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-bold">Latitude (Garis Lintang)</label>
+                                <input type="number" step="any" name="latitude" class="form-control" placeholder="Misal: -7.4536">
+                            </div>
+                            <div class="col-md-6 mb-3">
+                                <label class="form-label fw-bold">Longitude (Garis Bujur)</label>
+                                <input type="number" step="any" name="longitude" class="form-control" placeholder="Misal: 110.4407">
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Unggah Jalur Pendakian (File GPX)</label>
+                            <input type="file" name="gpx_file" class="form-control" accept=".gpx">
+                            <small class="text-muted">Format yang diizinkan hanya .gpx</small>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">Deskripsi Singkat</label>
+                            <textarea name="description" class="form-control" rows="4" placeholder="Tuliskan informasi singkat tentang gunung ini..."></textarea>
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-success">Simpan Data Gunung</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

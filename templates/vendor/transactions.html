@@ -1,0 +1,74 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <h3 class="mb-4">📦 Pesanan Sewa Alat</h3>
+    
+    <div class="card shadow-sm">
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Nama Pendaki</th>
+                            <th>Barang & Qty</th>
+                            <th>Jadwal Sewa</th>
+                            <th>Total Tagihan</th>
+                            <th>Status</th>
+                            <th>Aksi</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for tx, eq, hiker in transactions %}
+                        <tr>
+                            <td>
+                                <strong>{{ hiker.name }}</strong><br>
+                                <small class="text-muted">{{ hiker.phone }}</small>
+                            </td>
+                            <td>
+                                {{ eq.item_name }}<br>
+                                <span class="badge bg-secondary">Jumlah: {{ tx.qty }}</span>
+                            </td>
+                            <td>
+                                {{ tx.start_date.strftime('%d %b') }} - {{ tx.end_date.strftime('%d %b %Y') }}
+                            </td>
+                            <td class="text-primary fw-bold">Rp {{ tx.total_price|int }}</td>
+                            <td>
+                                {% if tx.status == 'pending' %}
+                                    <span class="badge bg-warning text-dark">Menunggu Diambil</span>
+                                {% elif tx.status == 'active' %}
+                                    <span class="badge bg-info text-dark">Sedang Disewa</span>
+                                {% elif tx.status == 'completed' %}
+                                    <span class="badge bg-success">Selesai (Kembali)</span>
+                                {% elif tx.status == 'cancelled' %}
+                                    <span class="badge bg-danger">Batal</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <form action="/vendor/transactions/update/{{ tx.id }}" method="POST" class="d-inline">
+                                    {% if tx.status == 'pending' %}
+                                        <input type="hidden" name="status" value="active">
+                                        <button type="submit" class="btn btn-sm btn-primary">Berikan Barang</button>
+                                        
+                                    {% elif tx.status == 'active' %}
+                                        <input type="hidden" name="status" value="completed">
+                                        <button type="submit" class="btn btn-sm btn-success">Barang Kembali</button>
+                                        
+                                    {% else %}
+                                        <button class="btn btn-sm btn-secondary" disabled>Selesai</button>
+                                    {% endif %}
+                                </form>
+                            </td>
+                        </tr>
+                        {% else %}
+                        <tr>
+                            <td colspan="6" class="text-center py-4 text-muted">Belum ada transaksi penyewaan.</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

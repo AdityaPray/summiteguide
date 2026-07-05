@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <title>Summit Guide Admin</title>
+    <style>
+        body { display: flex; min-height: 100vh; overflow-x: hidden; }
+        .sidebar { width: 250px; background: #2c3e50; flex-shrink: 0; }
+        .nav-link { color: #bdc3c7; transition: 0.3s; }
+        .nav-link:hover { color: #ffffff; background: #34495e; }
+        .main-content { flex-grow: 1; padding: 2rem; background: #f8f9fa; }
+    </style>
+</head>
+<body>
+    <nav class="sidebar p-3">
+        <h4 class="text-white mb-4">Summit Guide</h4>
+        <ul class="nav flex-column">
+            <li class="nav-item"><a href="/dashboard" class="nav-link">Dashboard</a></li>
+            {% if session.get('user_role') == 'super_admin' %}
+                <li class="nav-item">
+                    <a href="/admin/gpx" class="nav-link">Master Gunung</a>
+                    <a href="/admin/basecamps" class="nav-link">Base Camp</a>
+                    <a href="/admin/vendors" class="nav-link">Vendor</a>
+                    <a href="/admin/basecamps/add" class="nav-link">Tambah basecamps</a>
+                    <a href="/admin/mountains/add" class="nav-link">Tambah Gunung</a>
+                </li>
+            {% endif %}
+            {% if session.get('user_role') == 'basecamp_admin' %}
+                <li class="nav-item"><a href="/basecamp/manage" class="nav-link">Ticket</a></li>
+                <li class="nav-item"><a href="/basecamp/tickets" class="nav-link">Cek Ticket</a></li>
+                <li class="nav-item"><a href="/basecamp/scanner" class="nav-link">Scan Ticket</a></li>
+            {% endif %}
+            {% if session.get('user_role') == 'vendor' %}
+                <li class="nav-item"><a href="/vendor/equipments" class="nav-link">Katalog Alat</a></li>
+                <li class="nav-item"><a href="/vendor/transactions" class="nav-link">Transaksi</a></li>
+            {% endif %}
+            <li class="nav-item mt-5"><a href="/profile" class="nav-link">Profil</a></li>
+            <li class="nav-item mt-5"><a href="/logout" class="nav-link text-danger">Logout</a></li>
+        </ul>
+    </nav>
+
+    <main class="main-content">
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}{% for m in messages %}<div class="alert alert-info">{{ m }}</div>{% endfor %}{% endif %}
+        {% endwith %}
+        {% block content %}{% endblock %}
+    </main>
+</body>
+</html>

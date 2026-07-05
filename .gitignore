@@ -1,0 +1,31 @@
+# Environment variables (JANGAN pernah push file ini - berisi password & API key)
+.env
+.env.local
+
+# Virtual environment
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Upload lokal lama (sudah tidak dipakai setelah pindah ke Supabase Storage,
+# tapi kalau masih ada foldernya, jangan ikut di-push - bisa besar & tidak relevan)
+static/uploads/
+
+# Vercel
+.vercel
+
+# IDE / editor
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Jupyter checkpoints (kalau notebook masih ada di folder project)
+.ipynb_checkpoints/

@@ -1,0 +1,75 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-4 mb-4">
+            <div class="card shadow-sm border-primary">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">⛺ Tambah Peralatan</h5>
+                </div>
+                <div class="card-body">
+                    <form action="/vendor/equipments" method="POST" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label class="form-label">Nama Barang</label>
+                            <input type="text" name="item_name" class="form-control" placeholder="Tenda Doom 4 Orang" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Harga Sewa / Hari (Rp)</label>
+                            <input type="number" name="price_per_day" class="form-control" placeholder="35000" min="0" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Jumlah Stok Total</label>
+                            <input type="number" name="stock" class="form-control" placeholder="10" min="1" required>
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label">Foto Barang</label>
+                            <input type="file" name="image_file" class="form-control" accept="image/png, image/jpeg">
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Simpan ke Katalog</button>
+                    </form>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-8">
+            <div class="card shadow-sm">
+                <div class="card-body">
+                    <h5 class="card-title mb-3">Katalog Tersedia</h5>
+                    <div class="table-responsive">
+                        <table class="table table-hover align-middle">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Barang</th>
+                                    <th>Harga/Hari</th>
+                                    <th>Sisa Stok</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in equipments %}
+                                <tr>
+                                    <td>
+                                        <div class="d-flex align-items-center">
+                                            {% if item.image_url %}
+                                            <img src="{{ item.image_url }}" alt="" class="rounded me-2" style="width: 40px; height: 40px; object-fit: cover;">
+                                            {% else %}
+                                            <div class="bg-secondary rounded me-2" style="width: 40px; height: 40px;"></div>
+                                            {% endif %}
+                                            <strong>{{ item.item_name }}</strong>
+                                        </div>
+                                    </td>
+                                    <td>Rp {{ item.price_per_day|int }}</td>
+                                    <td><span class="badge {% if item.stock > 0 %}bg-success{% else %}bg-danger{% endif %}">{{ item.stock }}</span></td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="3" class="text-center text-muted">Belum ada barang di katalog Anda.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

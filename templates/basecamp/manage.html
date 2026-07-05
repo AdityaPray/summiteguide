@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-md-5 mb-4">
+            <div class="card shadow-sm border-0 bg-dark text-white">
+                <div class="card-body p-4">
+                    <span class="badge bg-primary mb-2">Wilayah Operasional</span>
+                    <h3 class="fw-bold">{{ basecamp.name }}</h3>
+                    <p class="text-white-50 small mb-0">Kelola kuota pendakian harian dan nominal harga tiket simaksi resmi secara berkala di sini.</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-7">
+            <div class="card shadow-sm">
+                <div class="card-header bg-white py-3">
+                    <h5 class="mb-0 fw-bold text-secondary">🔧 Pengaturan Tarif & Kapasitas</h5>
+                </div>
+                <div class="card-body p-4">
+                    <form action="/basecamp/manage" method="POST">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Kuota Harian Pendaki</label>
+                            <div class="input-group">
+                                <input type="number" name="daily_quota" class="form-control" value="{{ basecamp.daily_quota }}" min="1" required>
+                                <span class="input-group-text">Orang / Hari</span>
+                            </div>
+                            <small class="text-muted">Batasan maksimal pendaki yang diizinkan melakukan booking dalam satu hari.</small>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label fw-bold">Harga Tiket Masuk (Simaksi)</label>
+                            <div class="input-group">
+                                <span class="input-group-text">Rp</span>
+                                <input type="number" name="ticket_price" class="form-control" value="{{ basecamp.ticket_price|int }}" min="0" required>
+                            </div>
+                            <small class="text-muted">Nominal tarif per pendaki yang akan terhitung saat checkout di aplikasi mobile.</small>
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary py-2 fw-bold">Simpan Perubahan Konfigurasi</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

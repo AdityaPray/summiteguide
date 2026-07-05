@@ -1,0 +1,33 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container-fluid">
+    <h2 class="mb-4">Dashboard</h2>
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card p-4">
+                <h5>Selamat Datang, {{ session.get('user_name') }}!</h5>
+                <p>Gunakan menu di samping untuk mengelola operasional Anda.</p>
+            </div>
+            {% if session.get('user_role') in ['super_admin', 'basecamp_admin'] %}
+            <div class="col-md-3">
+                <div class="card p-3 text-center">
+                    <h6 class="text-muted">Tiket Terjual</h6>
+                    <h3>{{ data.get('total_tiket', 0) }}</h3>
+                    <p class="mb-0">Rp {{ "{:,.0f}".format(data.get('pendapatan_tiket', 0)) }}</p>
+                </div>
+            </div>
+            {% endif %}
+
+            {% if session.get('user_role') in ['super_admin', 'vendor'] %}
+            <div class="col-md-3">
+                <div class="card p-3 text-center">
+                    <h6 class="text-muted">Transaksi Sewa</h6>
+                    <h3>{{ data.get('total_sewa', 0) }}</h3>
+                    <p class="mb-0">Rp {{ "{:,.0f}".format(data.get('pendapatan_sewa', 0)) }}</p>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}

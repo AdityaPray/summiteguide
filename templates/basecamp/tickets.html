@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-4">
+    <h3>Daftar Tiket Masuk</h3>
+    <table class="table table-hover mt-3">
+        <thead>
+            <tr>
+                <th>ID Tiket</th>
+                <th>Tgl Mendaki</th>
+                <th>Status</th>
+                <th>Aksi</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for ticket in tickets %}
+            <tr>
+                <td>{{ ticket.qr_code }}</td>
+                <td>{{ ticket.booking_date }}</td>
+                <td>
+                    <span class="badge {% if ticket.status == 'checked_in' %}bg-success{% else %}bg-warning{% endif %}">
+                        {{ ticket.status }}
+                    </span>
+                </td>
+                <td>
+                    {% if ticket.status != 'checked_in' %}
+                    <form action="/basecamp/tickets/update-status/{{ ticket.id }}" method="POST">
+                        <input type="hidden" name="status" value="checked_in">
+                        <button type="submit" class="btn btn-sm btn-primary">Check-in</button>
+                    </form>
+                    {% else %}
+                    <span class="text-muted small">Sudah Masuk</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

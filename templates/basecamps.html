@@ -1,0 +1,63 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3>Verifikasi Pengurus Basecamp</h3>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Nama Pengurus</th>
+                    <th>Email</th>
+                    <th>Surat Tugas / SK</th>
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for basecamp in basecamps %}
+                <tr>
+                    <td class="align-middle fw-bold">{{ basecamp.name }}</td>
+                    <td class="align-middle">{{ basecamp.email }}</td>
+                    <td class="align-middle">
+                        <a href="{{ basecamp.official_letter }}" target="_blank" class="btn btn-sm btn-outline-primary">
+                            📄 Lihat Surat
+                        </a>
+                    </td>
+                    <td class="align-middle">
+                        <button onclick="approveBasecamp('{{ basecamp.id }}')" class="btn btn-sm btn-success">
+                            ✓ Aktifkan Akun
+                        </button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4" class="text-center py-4 text-muted">Tidak ada pengurus basecamp yang menunggu verifikasi.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+async function approveBasecamp(userId) {
+    if(confirm('Aktifkan akun basecamp ini? Mereka akan mendapat akses manajemen tiket.')) {
+        try {
+            const response = await fetch(`/admin/basecamps/verify/${userId}`, { method: 'POST' });
+            const result = await response.json();
+            if(response.ok) {
+                alert(result.message);
+                location.reload(); 
+            } else {
+                alert('Gagal: ' + result.message);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+        }
+    }
+}
+</script>
+{% endblock %}

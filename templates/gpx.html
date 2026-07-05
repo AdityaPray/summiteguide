@@ -1,0 +1,67 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h3>Validasi Jalur Pendakian (GPX)</h3>
+</div>
+
+<div class="card shadow-sm">
+    <div class="card-body p-0">
+        <table class="table table-hover mb-0">
+            <thead class="table-light">
+                <tr>
+                    <th>Nama Gunung</th>
+                    <th>Koordinat Utama</th>
+                    <th>File GPX</th>
+                    <th>Aksi</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for mountain in mountains %}
+                <tr>
+                    <td class="align-middle fw-bold">{{ mountain.name }}</td>
+                    <td class="align-middle">{{ mountain.location_lat }}, {{ mountain.location_long }}</td>
+                    <td class="align-middle">
+                        <a href="{{ mountain.gpx_data }}" download class="btn btn-sm btn-outline-secondary">
+                            ⬇️ Download GPX
+                        </a>
+                    </td>
+                    <td class="align-middle">
+                        <button onclick="verifyGpx('{{ mountain.id }}')" class="btn btn-sm btn-success">
+                            ✓ Publikasikan Jalur
+                        </button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4" class="text-center py-4 text-muted">Semua jalur gunung saat ini sudah tervalidasi.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+async function verifyGpx(mountainId) {
+    if(confirm('Publikasikan jalur ini? Jalur ini akan langsung terlihat di peta pendaki.')) {
+        try {
+            const response = await fetch(`/admin/mountains/${mountainId}/verify-gpx`, { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_verified: true })
+            });
+            const result = await response.json();
+            if(response.ok) {
+                alert(result.message);
+                location.reload(); 
+            } else {
+                alert('Gagal: ' + result.message);
+            }
+        } catch (error) {
+            console.error('Error:', error);
+        }
+    }
+}
+</script>
+{% endblock %}

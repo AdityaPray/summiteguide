@@ -1,0 +1,47 @@
+{% extends 'base.html' %} {% block content %}
+<div class="container mt-4">
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            
+            <a href="/dashboard" class="btn btn-outline-secondary mb-3">&larr; Kembali ke Dashboard</a>
+
+            <div class="card shadow-sm">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">🏕️ Tambah Data Basecamp / Jalur</h5>
+                </div>
+                <div class="card-body">
+                    <form action="/admin/basecamps/add" method="POST">
+                        
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Pilih Gunung (Induk)</label>
+                            <select name="mountain_id" class="form-select" required>
+                                <option value="" disabled selected>-- Pilih Gunung yang Tersedia --</option>
+                                {% for m in mountains %}
+                                <option value="{{ m.id }}">{{ m.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <small class="text-muted">Gunung tidak ada? <a href="/admin/mountains/add">Tambah Gunung dulu</a>.</small>
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Nama Basecamp / Jalur Pendakian</label>
+                            <input type="text" name="name" class="form-control" placeholder="Misal: Basecamp Selo" required>
+                        </div>
+                        
+                        <div class="row">
+                            <div class="col-md-6 mb-4">
+                                <label class="form-label fw-bold">Kuota Harian Pendaki</label>
+                                <input type="number" name="daily_quota" class="form-control" placeholder="Misal: 300" min="0">
+                            </div>
+                        </div>
+
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-primary">Simpan Data Basecamp</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

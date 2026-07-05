@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Verifikasi Email | Summit Guide</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background-color: #f4f6f9;
+        }
+
+        .otp-input {
+            width: 50px;
+            height: 50px;
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            margin: 0 5px;
+        }
+    </style>
+</head>
+
+<body class="d-flex align-items-center justify-content-center vh-100">
+
+    <div class="card shadow-sm p-4 text-center" style="max-width: 400px; width: 100%;">
+        <h3 class="mb-3">Cek Email Anda</h3>
+        <p class="text-muted mb-4">
+            Kami telah mengirimkan 6 digit kode OTP ke email:<br>
+            <strong>{{ email }}</strong>
+        </p>
+
+        <form id="otpForm" onsubmit="submitOtp(event)">
+            <input type="text" id="otpCode" class="form-control form-control-lg text-center mb-4 text-primary"
+                placeholder="Masukkan 6 Digit OTP" maxlength="6" pattern="\d{6}" required>
+
+            <button type="submit" class="btn btn-primary w-100 mb-3" id="btnSubmit">Verifikasi Sekarang</button>
+        </form>
+
+        <p class="text-muted small mt-3">
+            Tidak menerima email?
+            <a href="#" id="resendLink" onclick="resendOtp(event)" class="text-decoration-none fw-bold">Kirim Ulang</a>
+            <span id="countdownText" class="text-danger ms-2" style="display: none;"></span>
+        </p>
+    </div>
+
+    <script>
+        // Mengambil email dari variabel Jinja2 yang disuntikkan Flask
+        const userEmail = "{{ email }}";
+
+        // ==========================================
+        // 1. FUNGSI UNTUK SUBMIT OTP
+        // ==========================================
+        async function submitOtp(event) {
+            event.preventDefault(); // Mencegah halaman refresh
+
+            const otpCode = document.getElementById('otpCode').value;
+            const btnSubmit = document.getElementById('btnSubmit');
+
+            // Ubah tombol jadi loading
+            btnSubmit.disabled = true;
+            btnSubmit.innerText = "Memverifikasi...";
+
+            try {
+                const response = await fetch('/api/auth/verify-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: userEmail, otp: otpCode })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert("Email berhasil diverifikasi!");
+                    window.location.href = "/dashboard";
+                } else {
+                    alert("Gagal: " + result.message);
+                    btnSubmit.disabled = false;
+                    btnSubmit.innerText = "Verifikasi Sekarang";
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                alert("Terjadi kesalahan sistem.");
+                btnSubmit.disabled = false;
+                btnSubmit.innerText = "Verifikasi Sekarang";
+            }
+        } // <-- PASTIKAN KURUNG TUTUP submitOtp BERADA DI SINI
+
+        // ==========================================
+        // 2. FUNGSI UNTUK KIRIM ULANG OTP
+        // ==========================================
+        async function resendOtp(event) {
+            event.preventDefault();
+            const resendLink = document.getElementById('resendLink');
+            const countdownText = document.getElementById('countdownText');
+
+            // Mencegah klik ganda saat proses berjalan
+            resendLink.style.pointerEvents = "none";
+            resendLink.innerText = "Mengirim...";
+
+            try {
+                const response = await fetch('/api/auth/resend-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email: userEmail })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    alert("OTP Baru telah dikirim! Silakan cek inbox/spam email Anda.");
+                    startCooldown(60); // Mulai jeda 60 detik
+                } else {
+                    alert("Gagal: " + result.message);
+                    resendLink.style.pointerEvents = "auto";
+                    resendLink.innerText = "Kirim Ulang";
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                alert("Terjadi kesalahan sistem.");
+                resendLink.style.pointerEvents = "auto";
+                resendLink.innerText = "Kirim Ulang";
+            }
+        }
+
+        // ==========================================
+        // 3. FUNGSI UNTUK TIMER COOLDOWN
+        // ==========================================
+        function startCooldown(seconds) {
+            const resendLink = document.getElementById('resendLink');
+            const countdownText = document.getElementById('countdownText');
+
+            resendLink.style.display = "none";
+            countdownText.style.display = "inline";
+
+            let timer = seconds;
+            countdownText.innerText = `Tunggu ${timer} detik`;
+
+            const interval = setInterval(() => {
+                timer--;
+                countdownText.innerText = `Tunggu ${timer} detik`;
+
+                if (timer <= 0) {
+                    clearInterval(interval);
+                    resendLink.style.display = "inline";
+                    resendLink.style.pointerEvents = "auto";
+                    resendLink.innerText = "Kirim Ulang";
+                    countdownText.style.display = "none";
+                }
+            }, 1000);
+        }
+    </script>
+
+</body>
+
+</html>

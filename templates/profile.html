@@ -1,0 +1,187 @@
+{% extends 'base.html' %} {% block content %}
+<div class="row mt-4">
+    <div class="col-md-4 mb-4">
+        <div class="card shadow-sm text-center">
+            <div class="card-body">
+                <img src="{{ user.profile_photo }}" class="rounded-circle mb-3" style="width: 150px; height: 150px; object-fit: cover; border: 3px solid #dee2e6;" alt="Foto Profil">
+                <h4 class="mb-1">{{ user.name }}</h4>
+                <p class="text-muted mb-2">Role: <span class="badge bg-secondary text-uppercase">{{ user.role }}</span></p>
+                <p class="text-muted small">Status: {{ user.status }}</p>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-8">
+        <div class="card shadow-sm">
+            <div class="card-header bg-white">
+                <ul class="nav nav-tabs card-header-tabs" id="profileTabs">
+                    <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#tab-data">Data Diri</button></li>
+                    <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#tab-password">Keamanan</button></li>
+                    {% if user.role == 'pendaki' %}
+                    <li class="nav-item"><button class="nav-link text-primary" data-bs-toggle="tab" data-bs-target="#tab-upgrade">Upgrade Akun</button></li>
+                    {% endif %}
+                </ul>
+            </div>
+            
+            <div class="card-body tab-content">
+                
+                <div class="tab-pane fade show active" id="tab-data">
+                    <form action="/profile" method="POST" enctype="multipart/form-data">
+                        <input type="hidden" name="action" value="update_profile">
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Email (Tidak bisa diubah)</label>
+                            <input type="email" class="form-control bg-light" value="{{ user.email }}" readonly>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Nama Lengkap</label>
+                            <input type="text" name="name" class="form-control" value="{{ user.name }}" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Nomor HP</label>
+                            <input type="text" name="phone" class="form-control" value="{{ user.phone or '' }}" placeholder="0812xxxxxx">
+                        </div>
+                        <div class="mb-4">
+                            <label class="form-label">Ganti Foto Profil</label>
+                            <input type="file" name="profile_photo" class="form-control" accept="image/png, image/jpeg">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
+                    </form>
+                </div>
+
+                <div class="tab-pane fade" id="tab-password">
+                    <form action="/profile" method="POST">
+                        <input type="hidden" name="action" value="update_password">
+                        
+                        <div class="mb-3">
+                            <label class="form-label">Password Lama</label>
+                            <input type="password" name="old_password" class="form-control" required>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Password Baru</label>
+                            <input type="password" name="new_password" class="form-control" minlength="6" required>
+                        </div>
+                        <button type="submit" class="btn btn-warning">Perbarui Password</button>
+                    </form>
+                </div>
+
+                {% if user.role == 'pendaki' %}
+                <div class="tab-pane fade" id="tab-upgrade">
+                    <h5 class="mb-3">Pengajuan Upgrade Akun</h5>
+                    <p class="text-muted mb-4">Silakan lengkapi dokumen di bawah ini sesuai role yang diajukan.</p>
+                    
+                    <form action="/profile/upgrade" method="POST" enctype="multipart/form-data">
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">Pilih Jenis Pengelola</label>
+                            <select name="role" id="roleSelect" class="form-select" onchange="toggleUpgradeFields()" required>
+                                <option value="" disabled selected>-- Pilih Role --</option>
+                                <option value="vendor">Vendor Alat Rental</option>
+                                <option value="basecamp_admin">Pengurus Basecamp / Jalur</option>
+                            </select>
+                        </div>
+
+                        <div id="commonFields" style="display: none;" class="p-3 bg-light border rounded mb-3">
+                            <h6 class="border-bottom pb-2 mb-3">Data Operasional & Identitas</h6>
+                            <div class="mb-3">
+                                <label class="form-label">Lokasi Operasional (Basecamp/Jalur)</label>
+                                <select name="basecamp_id" id="basecampInput" class="form-select">
+                                    <option value="" disabled selected>-- Pilih Lokasi --</option>
+                                    {% for bc in basecamps %}
+                                    <option value="{{ bc.id }}">{{ bc.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Nomor KTP (NIK)</label>
+                                <input type="text" name="ktp_number" id="ktpNumberInput" class="form-control" maxlength="16" placeholder="16 Digit NIK">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Unggah Foto KTP</label>
+                                <input type="file" name="ktp_image" id="ktpInput" class="form-control" accept="image/png, image/jpeg">
+                            </div>
+                        </div>
+
+                        <div id="vendorFields" style="display: none;" class="p-3 bg-white border border-primary rounded mb-3">
+                            <h6 class="border-bottom pb-2 mb-3 text-primary">Data Toko & Keuangan (Khusus Vendor)</h6>
+                            <div class="mb-3">
+                                <label class="form-label">Nama Toko Rental</label>
+                                <input type="text" name="shop_name" id="shopNameInput" class="form-control" placeholder="Misal: Selo Adventure">
+                            </div>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Nama Bank</label>
+                                    <input type="text" name="bank_name" id="bankNameInput" class="form-control" placeholder="BCA / Mandiri / BRI">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label">Nomor Rekening</label>
+                                    <input type="text" name="bank_account" id="bankAccountInput" class="form-control" placeholder="Nomor Rekening">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div id="basecampFields" style="display: none;" class="p-3 bg-white border border-success rounded mb-3">
+                            <h6 class="border-bottom pb-2 mb-3 text-success">Dokumen Legalitas (Khusus Basecamp)</h6>
+                            <div class="mb-3">
+                                <label class="form-label">Unggah Surat Tugas / SK Kepengurusan</label>
+                                <input type="file" name="official_letter" id="letterInput" class="form-control" accept="application/pdf, image/jpeg, image/png">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="btn btn-dark w-100" id="btnSubmitUpgrade" style="display: none;">Ajukan Upgrade Akun</button>
+                    </form>
+                </div>
+                {% endif %}
+
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function toggleUpgradeFields() {
+    const role = document.getElementById('roleSelect').value;
+    
+    // Div Containers
+    const commonFields = document.getElementById('commonFields');
+    const vendorFields = document.getElementById('vendorFields');
+    const basecampFields = document.getElementById('basecampFields');
+    const btnSubmit = document.getElementById('btnSubmitUpgrade');
+    
+    // Reset Required
+    document.getElementById('basecampInput').required = false;
+    document.getElementById('ktpNumberInput').required = false;
+    document.getElementById('ktpInput').required = false;
+    document.getElementById('shopNameInput').required = false;
+    document.getElementById('bankNameInput').required = false;
+    document.getElementById('bankAccountInput').required = false;
+    document.getElementById('letterInput').required = false;
+
+    // Munculkan Common Fields karena keduanya butuh KTP dan Basecamp ID
+    if (role !== "") {
+        commonFields.style.display = 'block';
+        btnSubmit.style.display = 'block';
+        
+        document.getElementById('basecampInput').required = true;
+        document.getElementById('ktpNumberInput').required = true;
+        document.getElementById('ktpInput').required = true;
+    }
+
+    if (role === 'vendor') {
+        vendorFields.style.display = 'block';
+        basecampFields.style.display = 'none';
+        
+        document.getElementById('shopNameInput').required = true;
+        document.getElementById('bankNameInput').required = true;
+        document.getElementById('bankAccountInput').required = true;
+        
+    } else if (role === 'basecamp_admin') {
+        basecampFields.style.display = 'block';
+        vendorFields.style.display = 'none';
+        
+        document.getElementById('letterInput').required = true;
+    }
+}
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{% endblock %}
