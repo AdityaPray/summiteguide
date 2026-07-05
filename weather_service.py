@@ -48,6 +48,20 @@ if not OPENWEATHER_API_KEY:
     print("[WEATHER][WARNING] OPENWEATHER_API_KEY tidak ditemukan di .env! Forecast tidak akan berfungsi.")
 
 
+def normalize_name(mountain_name: str) -> str:
+    """
+    Normalisasi nama gunung supaya konsisten di seluruh sistem (selalu huruf
+    kecil, tanpa spasi berlebih). Ini WAJIB dipakai di SEMUA tempat yang
+    baca/tulis mountain_name — baik saat cron menulis data dari nama Postgres
+    (mis. "Gunung Slamet"), maupun saat endpoint mobile membaca dengan nama
+    yang mungkin beda kapitalisasi (mis. "gunung slamet" dari URL).
+    Tanpa ini, MongoDB akan menganggap "Gunung Slamet" dan "gunung slamet"
+    sebagai 2 data yang berbeda (case-sensitive), menyebabkan 404 padahal
+    datanya sebenarnya ada.
+    """
+    return mountain_name.strip().lower()
+
+
 # ==============================================================================
 # TABEL KONVERSI KODE CUACA WMO -> TEKS (dipakai untuk data HISTORY)
 # ==============================================================================
@@ -147,6 +161,7 @@ def resolve_mountain_coordinates(mountain_name: str):
     2. Daftar manual known-good (KNOWN_MOUNTAIN_COORDS) - paling akurat
     3. Geocoding Open-Meteo - fallback terakhir untuk gunung yang belum dikenal
     """
+    mountain_name = normalize_name(mountain_name)
     coll = get_weather_db()["mountain_coordinates"]
 
     cached = coll.find_one({"mountain_name": mountain_name})
@@ -170,7 +185,8 @@ def resolve_mountain_coordinates(mountain_name: str):
         return lat, lon
 
     # Fallback: geocoding otomatis untuk gunung yang belum ada di daftar manual
-    clean_name = mountain_name.replace("Gunung", "").split("(")[0].strip()
+    # (mountain_name sudah dinormalisasi ke lowercase di atas, jadi replace pakai "gunung" huruf kecil)
+    clean_name = mountain_name.replace("gunung", "").split("(")[0].strip()
 
     params = {"name": clean_name, "count": 5, "language": "id", "format": "json"}
     try:
@@ -216,6 +232,7 @@ def resolve_mountain_coordinates(mountain_name: str):
 # ==============================================================================
 def update_forecast_for_mountain(mountain_name: str) -> bool:
     """Cukup modal nama gunung — koordinat di-resolve otomatis via geocoding."""
+    mountain_name = normalize_name(mountain_name)
     lat, lon = resolve_mountain_coordinates(mountain_name)
     if lat is None:
         return False
@@ -280,6 +297,7 @@ def update_forecast_for_mountain(mountain_name: str) -> bool:
 # ==============================================================================
 def update_history_for_mountain(mountain_name: str, days_back: int = 365) -> bool:
     """Cukup modal nama gunung — koordinat di-resolve otomatis via geocoding."""
+    mountain_name = normalize_name(mountain_name)
     lat, lon = resolve_mountain_coordinates(mountain_name)
     if lat is None:
         return False
@@ -358,12 +376,14 @@ def update_all_mountains_weather(mountain_names: list):
 # 4. FUNGSI BACA - dipanggil oleh endpoint API mobile
 # ==============================================================================
 def get_forecast_by_name(mountain_name: str):
+    mountain_name = normalize_name(mountain_name)
     return get_weather_db()["weather_forecast"].find_one(
         {"mountain_name": mountain_name}, {"_id": 0}
     )
 
 
 def get_history_by_name(mountain_name: str, limit_days: int = 30):
+    mountain_name = normalize_name(mountain_name)
     doc = get_weather_db()["weather_history"].find_one(
         {"mountain_name": mountain_name}, {"_id": 0}
     )
