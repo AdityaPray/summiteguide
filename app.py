@@ -140,26 +140,6 @@ def cron_update_weather():
         "total_gunung": len(mountain_names)
     }), 200
 
-
-# ==========================================
-# ENDPOINT UNTUK APLIKASI MOBILE (Flutter)
-# ==========================================
-@app.route('/api/weather/forecast/<mountain_name>', methods=['GET'])
-def api_weather_forecast(mountain_name):
-    data = get_forecast_by_name(mountain_name)
-    if not data:
-        return jsonify({"message": "Data forecast belum tersedia untuk gunung ini"}), 404
-    return jsonify(data), 200
-
-
-@app.route('/api/weather/history/<mountain_name>', methods=['GET'])
-def api_weather_history(mountain_name):
-    data = get_history_by_name(mountain_name)
-    if not data:
-        return jsonify({"message": "Data histori belum tersedia untuk gunung ini"}), 404
-    return jsonify(data), 200
-
-
 # --- KONFIGURASI SWAGGER LENGKAP ---
 swagger_template = {
     "swagger": "2.0",
@@ -1104,6 +1084,27 @@ def api_update_profile():
             "profile_photo": user.profile_photo
         }
     }), 200
+    
+    
+    
+# ==========================================
+# ENDPOINT UNTUK APLIKASI MOBILE (Flutter)
+# ==========================================
+@app.route('/api/weather/forecast/<mountain_name>', methods=['GET'])
+def api_weather_forecast(mountain_name):
+    data = get_forecast_by_name(mountain_name)
+    if not data:
+        return jsonify({"message": "Data forecast belum tersedia untuk gunung ini"}), 404
+    return jsonify(data), 200
+
+
+@app.route('/api/weather/history/<mountain_name>', methods=['GET'])
+def api_weather_history(mountain_name):
+    data = get_history_by_name(mountain_name)
+    if not data:
+        return jsonify({"message": "Data histori belum tersedia untuk gunung ini"}), 404
+    return jsonify(data), 200
+
 
 
 # ==========================================================
