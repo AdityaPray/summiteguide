@@ -1090,16 +1090,26 @@ def api_update_profile():
 # ==========================================
 # ENDPOINT UNTUK APLIKASI MOBILE (Flutter)
 # ==========================================
-@app.route('/api/weather/forecast/<mountain_name>', methods=['GET'])
-def api_weather_forecast(mountain_name):
+@app.route('/api/weather/forecast', methods=['GET'])
+def api_weather_forecast():
+    mountain_name = request.args.get('name', '')
+    if not mountain_name:
+        return jsonify({"message": "Parameter 'name' diperlukan"}), 400
+    
+    from weather_service import get_forecast_by_name
     data = get_forecast_by_name(mountain_name)
     if not data:
         return jsonify({"message": "Data forecast belum tersedia untuk gunung ini"}), 404
     return jsonify(data), 200
 
 
-@app.route('/api/weather/history/<mountain_name>', methods=['GET'])
-def api_weather_history(mountain_name):
+@app.route('/api/weather/history', methods=['GET'])
+def api_weather_history():
+    mountain_name = request.args.get('name', '')
+    if not mountain_name:
+        return jsonify({"message": "Parameter 'name' diperlukan"}), 400
+    
+    from weather_service import get_history_by_name
     data = get_history_by_name(mountain_name)
     if not data:
         return jsonify({"message": "Data histori belum tersedia untuk gunung ini"}), 404
