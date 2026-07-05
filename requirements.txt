@@ -10,4 +10,4 @@ midtransclient==1.4.2
 requests==2.32.3
 pymongo==4.8.0
 APScheduler==3.10.4
-supabase==2.7.4
+supabase==2.31.0
