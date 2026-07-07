@@ -1447,6 +1447,62 @@ def api_checkout():
     except Exception as e:
         db.session.rollback()
         return jsonify({"message": "Terjadi kesalahan server", "error": str(e)}), 500
+    
+@app.route('/api/rental/my', methods=['GET'])
+@jwt_required()
+def api_my_rentals():
+    """
+    Riwayat & Status Sewa Alat Milik User
+    ---
+    tags:
+      - Rental & Booking
+    security:
+      - Bearer: []
+    parameters:
+      - in: query
+        name: status
+        type: string
+        required: false
+        description: "Filter opsional: pending, active, completed, cancelled"
+    responses:
+      200:
+        description: Daftar transaksi sewa milik user beserta status sewa & pembayaran
+    """
+    current_user_id = get_jwt_identity()
+    status_filter = request.args.get('status')
+
+    query = RentalTransaction.query.filter_by(user_id=int(current_user_id))
+    if status_filter:
+        query = query.filter_by(status=status_filter)
+
+    transactions = query.order_by(RentalTransaction.id.desc()).all()
+
+    today = datetime.now().date()
+    result = []
+    for tx in transactions:
+        eq = Equipment.query.get(tx.equipment_id)
+        is_overdue = (
+            tx.status == 'active'
+            and tx.payment_status == 'paid'
+            and tx.end_date is not None
+            and tx.end_date < today
+        )
+        result.append({
+            "id": tx.id,
+            "item_name": eq.item_name if eq else "-",
+            "image_url": eq.image_url if eq else None,
+            "qty": tx.qty,
+            "start_date": str(tx.start_date),
+            "end_date": str(tx.end_date),
+            "total_price": float(tx.total_price),
+            "status": tx.status,                 # pending / active / completed / cancelled
+            "payment_status": tx.payment_status,  # pending / paid / failed
+            "sedang_disewa": tx.status == 'active' and tx.payment_status == 'paid',
+            "belum_dikembalikan": tx.status == 'active',
+            "terlambat_dikembalikan": is_overdue,
+        })
+
+    return jsonify({"rentals": result}), 200
 
 
 @app.route('/api/payment/webhook', methods=['POST'])
