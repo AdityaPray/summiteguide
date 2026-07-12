@@ -1,33 +1,129 @@
 {% extends 'base.html' %}
 {% block content %}
 <div class="container-fluid">
-    <h2 class="mb-4">Dashboard</h2>
-    <div class="row">
-        <div class="col-md-6">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h2 class="mb-0">Dashboard</h2>
+        <select id="filterRange" class="form-select" style="width: 200px;">
+            <option value="today">Hari Ini</option>
+            <option value="yesterday">Kemarin</option>
+            <option value="7days" selected>7 Hari Terakhir</option>
+            <option value="30days">30 Hari Terakhir</option>
+        </select>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-12">
             <div class="card p-4">
                 <h5>Selamat Datang, {{ session.get('user_name') }}!</h5>
-                <p>Gunakan menu di samping untuk mengelola operasional Anda.</p>
+                <p class="mb-0">Gunakan menu di samping untuk mengelola operasional Anda.</p>
             </div>
-            {% if session.get('user_role') in ['super_admin', 'basecamp_admin'] %}
-            <div class="col-md-3">
-                <div class="card p-3 text-center">
-                    <h6 class="text-muted">Tiket Terjual</h6>
-                    <h3>{{ data.get('total_tiket', 0) }}</h3>
-                    <p class="mb-0">Rp {{ "{:,.0f}".format(data.get('pendapatan_tiket', 0)) }}</p>
-                </div>
-            </div>
-            {% endif %}
-
-            {% if session.get('user_role') in ['super_admin', 'vendor'] %}
-            <div class="col-md-3">
-                <div class="card p-3 text-center">
-                    <h6 class="text-muted">Transaksi Sewa</h6>
-                    <h3>{{ data.get('total_sewa', 0) }}</h3>
-                    <p class="mb-0">Rp {{ "{:,.0f}".format(data.get('pendapatan_sewa', 0)) }}</p>
-                </div>
-            </div>
-            {% endif %}
         </div>
     </div>
+
+    <div class="row mb-4">
+        {% if session.get('user_role') in ['super_admin', 'basecamp_admin'] %}
+        <div class="col-md-3">
+            <div class="card p-3 text-center">
+                <h6 class="text-muted">Tiket Terjual</h6>
+                <h3 id="stat-total-tiket">{{ data.get('total_tiket', 0) }}</h3>
+                <p class="mb-0">Rp <span id="stat-pendapatan-tiket">{{ "{:,.0f}".format(data.get('pendapatan_tiket', 0)) }}</span></p>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if session.get('user_role') in ['super_admin', 'vendor'] %}
+        <div class="col-md-3">
+            <div class="card p-3 text-center">
+                <h6 class="text-muted">Transaksi Sewa</h6>
+                <h3 id="stat-total-sewa">{{ data.get('total_sewa', 0) }}</h3>
+                <p class="mb-0">Rp <span id="stat-pendapatan-sewa">{{ "{:,.0f}".format(data.get('pendapatan_sewa', 0)) }}</span></p>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <div class="row">
+        {% if session.get('user_role') in ['super_admin', 'basecamp_admin'] %}
+        <div class="col-md-6 mb-4">
+            <div class="card p-3">
+                <h6 class="text-muted mb-3">Grafik Penjualan Tiket</h6>
+                <canvas id="chartTiket" height="180"></canvas>
+            </div>
+        </div>
+        {% endif %}
+
+        {% if session.get('user_role') in ['super_admin', 'vendor'] %}
+        <div class="col-md-6 mb-4">
+            <div class="card p-3">
+                <h6 class="text-muted mb-3">Grafik Transaksi Sewa</h6>
+                <canvas id="chartSewa" height="180"></canvas>
+            </div>
+        </div>
+        {% endif %}
+    </div>
 </div>
+
+<script>
+let chartTiket, chartSewa;
+
+function formatRupiah(n) {
+    return new Intl.NumberFormat('id-ID').format(n);
+}
+
+function renderChart(ctxId, existingChart, labels, dataValues, label, color) {
+    const canvas = document.getElementById(ctxId);
+    if (!canvas) return existingChart;
+    if (existingChart) existingChart.destroy();
+    return new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: label,
+                data: dataValues,
+                borderColor: color,
+                backgroundColor: color + '33',
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: { y: { beginAtZero: true } }
+        }
+    });
+}
+
+function loadDashboardData(range) {
+    fetch(`/api/dashboard-stats?range=${range}`)
+        .then(res => res.json())
+        .then(data => {
+            // Update angka ringkasan
+            if (document.getElementById('stat-total-tiket')) {
+                document.getElementById('stat-total-tiket').innerText = data.total_tiket;
+                document.getElementById('stat-pendapatan-tiket').innerText = formatRupiah(data.pendapatan_tiket);
+            }
+            if (document.getElementById('stat-total-sewa')) {
+                document.getElementById('stat-total-sewa').innerText = data.total_sewa;
+                document.getElementById('stat-pendapatan-sewa').innerText = formatRupiah(data.pendapatan_sewa);
+            }
+            // Update grafik
+            if (document.getElementById('chartTiket')) {
+                chartTiket = renderChart('chartTiket', chartTiket, data.labels, data.tiket_series, 'Tiket', '#2c3e50');
+            }
+            if (document.getElementById('chartSewa')) {
+                chartSewa = renderChart('chartSewa', chartSewa, data.labels, data.sewa_series, 'Sewa', '#27ae60');
+            }
+        })
+        .catch(err => console.error('Gagal memuat data dashboard:', err));
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadDashboardData('7days');
+    document.getElementById('filterRange').addEventListener('change', (e) => {
+        loadDashboardData(e.target.value);
+    });
+});
+</script>
 {% endblock %}

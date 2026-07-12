@@ -123,6 +123,113 @@ if not IS_VERCEL:
 # endpoint ini secara terjadwal, menggantikan BackgroundScheduler di atas.
 CRON_SECRET = os.getenv('CRON_SECRET')
 
+@app.route('/api/dashboard-stats')
+def api_dashboard_stats():
+    if 'user_id' not in session:
+        return jsonify({"message": "Unauthorized"}), 401
+
+    user = User.query.get(session['user_id'])
+    role = user.role
+
+    # --- Tentukan rentang tanggal ---
+    range_param = request.args.get('range', '7days')
+    today = datetime.now().date()
+
+    if range_param == 'today':
+        start_date, end_date = today, today
+    elif range_param == 'yesterday':
+        start_date = end_date = today - timedelta(days=1)
+    elif range_param == '30days':
+        start_date = today - timedelta(days=29)
+        end_date = today
+    else:  # 7days (default)
+        start_date = today - timedelta(days=6)
+        end_date = today
+
+    labels = []
+    tiket_series = []
+    sewa_series = []
+    total_tiket = 0
+    total_sewa = 0
+    pendapatan_tiket = 0
+    pendapatan_sewa = 0
+
+    # ==========================================================
+    # QUERY TIKET (super_admin & basecamp_admin)
+    # ==========================================================
+    tiket_data = {}
+    if role in ['super_admin', 'basecamp_admin']:
+        tiket_query = db.session.query(
+            func.date(Ticket.created_at).label('tgl'),
+            func.coalesce(func.sum(Ticket.quantity), 0).label('jumlah'),
+            func.coalesce(func.sum(Ticket.ticket_price * Ticket.quantity), 0).label('pendapatan')
+        ).filter(
+            func.date(Ticket.created_at) >= start_date,
+            func.date(Ticket.created_at) <= end_date,
+            Ticket.payment_status == 'paid'
+        )
+
+        if role == 'basecamp_admin':
+            tiket_query = tiket_query.filter(Ticket.basecamp_id == user.basecamp_id)
+
+        tiket_query = tiket_query.group_by(func.date(Ticket.created_at))
+        tiket_data = {row.tgl: row for row in tiket_query.all()}
+
+    # ==========================================================
+    # QUERY SEWA (super_admin & vendor)
+    # ==========================================================
+    sewa_data = {}
+    if role in ['super_admin', 'vendor']:
+        sewa_query = db.session.query(
+            func.date(RentalTransaction.created_at).label('tgl'),
+            func.count(RentalTransaction.id).label('jumlah'),
+            func.coalesce(func.sum(RentalTransaction.total_price), 0).label('pendapatan')
+        ).join(Equipment, RentalTransaction.equipment_id == Equipment.id).filter(
+            func.date(RentalTransaction.created_at) >= start_date,
+            func.date(RentalTransaction.created_at) <= end_date,
+            RentalTransaction.payment_status == 'paid'
+        )
+
+        if role == 'vendor':
+            sewa_query = sewa_query.filter(Equipment.vendor_id == user.id)
+
+        sewa_query = sewa_query.group_by(func.date(RentalTransaction.created_at))
+        sewa_data = {row.tgl: row for row in sewa_query.all()}
+
+    # ==========================================================
+    # Susun label per hari (biar hari kosong tetap muncul sbg 0)
+    # ==========================================================
+    current = start_date
+    while current <= end_date:
+        labels.append(current.strftime('%d %b'))
+
+        row_tiket = tiket_data.get(current)
+        jumlah_tiket = int(row_tiket.jumlah) if row_tiket else 0
+        pendapatan_tiket_hari = float(row_tiket.pendapatan) if row_tiket else 0
+
+        row_sewa = sewa_data.get(current)
+        jumlah_sewa = int(row_sewa.jumlah) if row_sewa else 0
+        pendapatan_sewa_hari = float(row_sewa.pendapatan) if row_sewa else 0
+
+        tiket_series.append(jumlah_tiket)
+        sewa_series.append(jumlah_sewa)
+
+        total_tiket += jumlah_tiket
+        total_sewa += jumlah_sewa
+        pendapatan_tiket += pendapatan_tiket_hari
+        pendapatan_sewa += pendapatan_sewa_hari
+
+        current += timedelta(days=1)
+
+    return jsonify({
+        'labels': labels,
+        'tiket_series': tiket_series,
+        'sewa_series': sewa_series,
+        'total_tiket': total_tiket,
+        'total_sewa': total_sewa,
+        'pendapatan_tiket': pendapatan_tiket,
+        'pendapatan_sewa': pendapatan_sewa
+    })
 
 @app.route('/api/cron/update-weather', methods=['GET'])
 def cron_update_weather():
