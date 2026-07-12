@@ -585,8 +585,8 @@ def view_basecamps():
 @app.route('/admin/gpx', methods=['GET'])
 @admin_required
 def view_gpx():
-    unverified_mountains = Mountain.query.filter_by(is_verified=False).all()
-    return render_template('gpx.html', mountains=unverified_mountains)
+    all_mountains = Mountain.query.order_by(Mountain.name).all()
+    return render_template('gpx.html', mountains=all_mountains)
 
 
 @admin_bp.route('/admin/mountains/<int:mountain_id>/verify-gpx', methods=['POST'])
@@ -598,6 +598,38 @@ def verify_gpx(mountain_id):
     mountain.is_verified = data.get('is_verified', True)
     db.session.commit()
     return jsonify({"message": f"GPX untuk gunung {mountain.name} telah diverifikasi."})
+
+@admin_bp.route('/admin/mountains/<int:mountain_id>/update', methods=['POST'])
+@admin_required
+def update_mountain(mountain_id):
+    mountain = Mountain.query.get_or_404(mountain_id)
+
+    name = request.form.get('name')
+    lat = request.form.get('latitude')
+    lng = request.form.get('longitude')
+    description = request.form.get('description')
+
+    if not name:
+        return jsonify({"message": "Nama gunung wajib diisi"}), 400
+
+    mountain.name = name
+    mountain.location_lat = float(lat) if lat else None
+    mountain.location_long = float(lng) if lng else None
+    mountain.description = description
+
+    # Ganti file GPX hanya jika user upload file baru
+    gpx_file = request.files.get('gpx_file')
+    if gpx_file and gpx_file.filename != '':
+        uploaded_url = upload_file_to_supabase(gpx_file, folder="gpx")
+        if uploaded_url:
+            mountain.gpx_data = uploaded_url
+
+    try:
+        db.session.commit()
+        return jsonify({"message": f"Data gunung {mountain.name} berhasil diperbarui."}), 200
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"message": "Gagal memperbarui data gunung", "error": str(e)}), 500
 
 
 @admin_bp.route('/admin/vendors/verify/<int:user_id>', methods=['POST'])

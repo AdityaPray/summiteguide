@@ -27,14 +27,20 @@
                         </a>
                     </td>
                     <td class="align-middle">
-                        <button onclick="verifyGpx('{{ mountain.id }}')" class="btn btn-sm btn-success">
-                            ✓ Publikasikan Jalur
+                        <button class="btn btn-sm btn-outline-primary btn-edit-mountain" data-bs-toggle="modal"
+                            data-bs-target="#editMountainModal" data-id="{{ mountain.id }}"
+                            data-name="{{ mountain.name }}"
+                            data-lat="{{ mountain.location_lat if mountain.location_lat is not none else '' }}"
+                            data-lng="{{ mountain.location_long if mountain.location_long is not none else '' }}"
+                            data-description="{{ mountain.description or '' }}">
+                            ✏️ Edit
                         </button>
                     </td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="4" class="text-center py-4 text-muted">Semua jalur gunung saat ini sudah tervalidasi.</td>
+                    <td colspan="4" class="text-center py-4 text-muted">Semua jalur gunung saat ini sudah tervalidasi.
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -42,26 +48,111 @@
     </div>
 </div>
 
+<!-- Modal Edit Gunung -->
+<div class="modal fade" id="editMountainModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form id="editMountainForm" onsubmit="submitEditMountain(event)">
+                <div class="modal-header">
+                    <h5 class="modal-title">Edit Data Gunung</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="edit_mountain_id" name="mountain_id">
+
+                    <div class="mb-3">
+                        <label class="form-label">Nama Gunung</label>
+                        <input type="text" class="form-control" id="edit_name" name="name" required>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Latitude</label>
+                            <input type="text" class="form-control" id="edit_lat" name="latitude">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label class="form-label">Longitude</label>
+                            <input type="text" class="form-control" id="edit_lng" name="longitude">
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Deskripsi</label>
+                        <textarea class="form-control" id="edit_description" name="description" rows="3"></textarea>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label">Ganti File GPX (opsional)</label>
+                        <input type="file" class="form-control" id="edit_gpx_file" name="gpx_file" accept=".gpx">
+                        <small class="text-muted">Kosongkan jika tidak ingin mengganti file GPX.</small>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="submit" class="btn btn-primary">Simpan Perubahan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
 <script>
-async function verifyGpx(mountainId) {
-    if(confirm('Publikasikan jalur ini? Jalur ini akan langsung terlihat di peta pendaki.')) {
+    document.querySelectorAll('.btn-edit-mountain').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.getElementById('edit_mountain_id').value = btn.dataset.id;
+            document.getElementById('edit_name').value = btn.dataset.name;
+            document.getElementById('edit_lat').value = btn.dataset.lat;
+            document.getElementById('edit_lng').value = btn.dataset.lng;
+            document.getElementById('edit_description').value = btn.dataset.description;
+            document.getElementById('edit_gpx_file').value = '';
+        });
+    });
+
+    async function submitEditMountain(event) {
+        event.preventDefault();
+
+        const mountainId = document.getElementById('edit_mountain_id').value;
+        const form = document.getElementById('editMountainForm');
+        const formData = new FormData(form);
+
         try {
-            const response = await fetch(`/admin/mountains/${mountainId}/verify-gpx`, { 
+            const response = await fetch(`/admin/mountains/${mountainId}/update`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ is_verified: true })
+                body: formData
             });
             const result = await response.json();
-            if(response.ok) {
+
+            if (response.ok) {
                 alert(result.message);
-                location.reload(); 
+                location.reload();
             } else {
                 alert('Gagal: ' + result.message);
             }
         } catch (error) {
             console.error('Error:', error);
+            alert('Terjadi kesalahan saat menyimpan perubahan.');
         }
     }
-}
+
+    async function verifyGpx(mountainId) {
+        if (confirm('Publikasikan jalur ini? Jalur ini akan langsung terlihat di peta pendaki.')) {
+            try {
+                const response = await fetch(`/admin/mountains/${mountainId}/verify-gpx`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ is_verified: true })
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    alert(result.message);
+                    location.reload();
+                } else {
+                    alert('Gagal: ' + result.message);
+                }
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+    }
 </script>
 {% endblock %}
