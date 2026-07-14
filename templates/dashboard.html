@@ -61,10 +61,33 @@
         </div>
         {% endif %}
     </div>
+
+    <!-- ====================== GRAFIK CUACA INTERAKTIF ====================== -->
+    <div class="row">
+        <div class="col-md-12 mb-4">
+            <div class="card p-3">
+                <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+                    <h6 class="text-muted mb-0">Grafik Cuaca Gunung</h6>
+                    <div class="d-flex gap-2">
+                        <select id="weatherMountain" class="form-select form-select-sm" style="width: 200px;">
+                            <option value="">Memuat daftar gunung...</option>
+                        </select>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button type="button" class="btn btn-outline-secondary active" data-mode="forecast">Perkiraan</button>
+                            <button type="button" class="btn btn-outline-secondary" data-mode="history">Histori</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="weatherEmptyState" class="text-muted small mb-2" style="display:none;"></div>
+                <canvas id="chartWeather" height="110"></canvas>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
-let chartTiket, chartSewa;
+let chartTiket, chartSewa, chartWeather;
+let weatherMode = 'forecast';
 
 function formatRupiah(n) {
     return new Intl.NumberFormat('id-ID').format(n);
@@ -99,7 +122,6 @@ function loadDashboardData(range) {
     fetch(`/api/dashboard-stats?range=${range}`)
         .then(res => res.json())
         .then(data => {
-            // Update angka ringkasan
             if (document.getElementById('stat-total-tiket')) {
                 document.getElementById('stat-total-tiket').innerText = data.total_tiket;
                 document.getElementById('stat-pendapatan-tiket').innerText = formatRupiah(data.pendapatan_tiket);
@@ -108,7 +130,6 @@ function loadDashboardData(range) {
                 document.getElementById('stat-total-sewa').innerText = data.total_sewa;
                 document.getElementById('stat-pendapatan-sewa').innerText = formatRupiah(data.pendapatan_sewa);
             }
-            // Update grafik
             if (document.getElementById('chartTiket')) {
                 chartTiket = renderChart('chartTiket', chartTiket, data.labels, data.tiket_series, 'Tiket', '#2c3e50');
             }
@@ -119,10 +140,132 @@ function loadDashboardData(range) {
         .catch(err => console.error('Gagal memuat data dashboard:', err));
 }
 
+// ---------- Grafik Cuaca ----------
+
+function formatWeatherLabel(dt, mode) {
+    // 'forecast' dari OpenWeatherMap formatnya "YYYY-MM-DD HH:MM:SS"
+    // 'history' dari Open-Meteo formatnya ISO "YYYY-MM-DDTHH:MM"
+    const d = new Date(dt.replace(' ', 'T'));
+    if (isNaN(d)) return dt;
+    if (mode === 'history') {
+        return d.toLocaleDateString('id-ID', { day: '2-digit', month: 'short' });
+    }
+    return d.toLocaleString('id-ID', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
+}
+
+function renderWeatherChart(labels, temp, humidity) {
+    const canvas = document.getElementById('chartWeather');
+    if (!canvas) return;
+    if (chartWeather) chartWeather.destroy();
+
+    chartWeather = new Chart(canvas.getContext('2d'), {
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    type: 'line',
+                    label: 'Suhu (°C)',
+                    data: temp,
+                    borderColor: '#e67e22',
+                    backgroundColor: '#e67e2233',
+                    yAxisID: 'yTemp',
+                    tension: 0.3,
+                    fill: false,
+                },
+                {
+                    type: 'bar',
+                    label: 'Kelembapan (%)',
+                    data: humidity,
+                    backgroundColor: '#3498db66',
+                    yAxisID: 'yHumidity',
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { display: true, position: 'top' } },
+            scales: {
+                yTemp: {
+                    type: 'linear',
+                    position: 'left',
+                    title: { display: true, text: 'Suhu (°C)' },
+                },
+                yHumidity: {
+                    type: 'linear',
+                    position: 'right',
+                    title: { display: true, text: 'Kelembapan (%)' },
+                    grid: { drawOnChartArea: false },
+                    min: 0,
+                    max: 100,
+                },
+            }
+        }
+    });
+}
+
+function loadWeatherChart() {
+    const mountainSelect = document.getElementById('weatherMountain');
+    const emptyState = document.getElementById('weatherEmptyState');
+    const mountain = mountainSelect ? mountainSelect.value : '';
+    if (!mountain) return;
+
+    fetch(`/api/dashboard-weather?mountain=${encodeURIComponent(mountain)}&mode=${weatherMode}&days=7`)
+        .then(res => res.json())
+        .then(data => {
+            if (!data.labels || data.labels.length === 0) {
+                emptyState.style.display = 'block';
+                emptyState.innerText = data.message || 'Belum ada data cuaca untuk gunung ini.';
+                if (chartWeather) chartWeather.destroy();
+                return;
+            }
+            emptyState.style.display = 'none';
+            const labels = data.labels.map(l => formatWeatherLabel(l, weatherMode));
+            renderWeatherChart(labels, data.temp, data.humidity);
+        })
+        .catch(err => console.error('Gagal memuat grafik cuaca:', err));
+}
+
+function loadMountainOptions() {
+    const select = document.getElementById('weatherMountain');
+    if (!select) return;
+
+    fetch('/api/dashboard-mountains')
+        .then(res => res.json())
+        .then(data => {
+            select.innerHTML = '';
+            if (!data.mountains || data.mountains.length === 0) {
+                select.innerHTML = '<option value="">Belum ada data gunung</option>';
+                return;
+            }
+            data.mountains.forEach(m => {
+                const opt = document.createElement('option');
+                opt.value = m.value;
+                opt.textContent = m.label;
+                select.appendChild(opt);
+            });
+            loadWeatherChart();
+        })
+        .catch(err => console.error('Gagal memuat daftar gunung:', err));
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     loadDashboardData('7days');
     document.getElementById('filterRange').addEventListener('change', (e) => {
         loadDashboardData(e.target.value);
+    });
+
+    loadMountainOptions();
+
+    document.getElementById('weatherMountain').addEventListener('change', loadWeatherChart);
+
+    document.querySelectorAll('[data-mode]').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('[data-mode]').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            weatherMode = btn.dataset.mode;
+            loadWeatherChart();
+        });
     });
 });
 </script>

@@ -15,15 +15,23 @@ Sumber data:
 - Forecast (perkiraan 5 hari)  -> OpenWeatherMap  (butuh API key)
 - History (histori cuaca)      -> Open-Meteo Archive API (gratis, tanpa key)
 
+[BARU] Riwayat/log setiap kali update dijalankan (kapan, berapa gunung
+berhasil/gagal, berapa lama) dicatat di collection TERPISAH
+`weather_update_logs`, supaya tidak tercampur dengan data cuaca aktual
+di `weather_forecast` / `weather_history` / `mountain_coordinates`.
+
 Cara pakai:
     from weather_service import update_all_mountains_weather, get_forecast_by_name, get_history_by_name
 
     # Dipanggil terjadwal (APScheduler) atau manual via endpoint admin
-    update_all_mountains_weather(["Gunung Slamet", "Gunung Merbabu", ...])
+    summary = update_all_mountains_weather(["Gunung Slamet", "Gunung Merbabu", ...])
 
     # Dipanggil dari endpoint API mobile
     get_forecast_by_name("Gunung Slamet")
     get_history_by_name("Gunung Slamet")
+
+    # Dipanggil untuk lihat riwayat update terakhir (mis. untuk monitoring)
+    get_update_logs(limit=20)
 """
 
 import os
@@ -65,10 +73,6 @@ def normalize_name(mountain_name: str) -> str:
 # ==============================================================================
 # TABEL KONVERSI KODE CUACA WMO -> TEKS (dipakai untuk data HISTORY)
 # ==============================================================================
-# Open-Meteo Archive API hanya mengembalikan angka kode cuaca standar WMO,
-# bukan teks. Supaya schema `weather_history` konsisten dengan `weather_forecast`
-# (yang sudah berupa teks dari OpenWeatherMap), setiap weathercode dikonversi
-# jadi field `condition` (teks) dan `icon_category` (untuk mapping ke icon di apk).
 WMO_WEATHER_CODES = {
     0:  ("Cerah", "clear"),
     1:  ("Cerah Berawan", "partly_cloudy"),
@@ -106,7 +110,6 @@ def weathercode_to_text(code: int):
     return WMO_WEATHER_CODES.get(code, ("Tidak diketahui", "unknown"))
 
 
-
 GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
 FORECAST_URL = "https://api.openweathermap.org/data/2.5/forecast"
 HISTORY_URL = "https://archive-api.open-meteo.com/v1/archive"
@@ -127,12 +130,6 @@ def get_weather_db():
 # ==============================================================================
 # 0. RESOLVE KOORDINAT DARI NAMA GUNUNG (manual list -> cache -> geocoding fallback)
 # ==============================================================================
-# Geocoding otomatis kadang salah menangkap tempat lain yang kebetulan
-# namanya sama (mis. "Gunung Slamet" ternyata ada juga sebagai nama dusun
-# di Malang, koordinatnya jauh berbeda dari gunung yang asli).
-# Untuk gunung-gunung yang SUDAH diketahui koordinatnya secara pasti
-# (dari data notebook Anda), kita pakai daftar manual ini dulu.
-# Geocoding hanya dipakai sebagai fallback untuk gunung yang belum ada di daftar.
 KNOWN_MOUNTAIN_COORDS = {
     "gunung slamet": (-7.242, 109.208),
     "gunung merbabu": (-7.452, 110.438),
@@ -184,8 +181,6 @@ def resolve_mountain_coordinates(mountain_name: str):
         print(f"[WEATHER][MANUAL] '{mountain_name}' -> ({lat}, {lon})")
         return lat, lon
 
-    # Fallback: geocoding otomatis untuk gunung yang belum ada di daftar manual
-    # (mountain_name sudah dinormalisasi ke lowercase di atas, jadi replace pakai "gunung" huruf kecil)
     clean_name = mountain_name.replace("gunung", "").split("(")[0].strip()
 
     params = {"name": clean_name, "count": 5, "language": "id", "format": "json"}
@@ -204,7 +199,6 @@ def resolve_mountain_coordinates(mountain_name: str):
         print(f"[WEATHER][GEOCODE] Tidak ditemukan koordinat untuk '{mountain_name}' (coba nama lain)")
         return None, None
 
-    # Prioritaskan hasil yang berada di Indonesia, kalau ada beberapa kandidat
     best = next((r for r in results if r.get("country_code") == "ID"), results[0])
     lat, lon = best["latitude"], best["longitude"]
 
@@ -251,8 +245,6 @@ def update_forecast_for_mountain(mountain_name: str) -> bool:
 
     data = resp.json()
 
-    # Mapping kategori OpenWeatherMap ("main") -> icon_category yang SAMA
-    # dengan yang dipakai di history (biar apk mobile cukup 1 set icon saja)
     OWM_MAIN_TO_ICON = {
         "Clear": "clear",
         "Clouds": "cloudy",
@@ -359,21 +351,99 @@ def update_history_for_mountain(mountain_name: str, days_back: int = 365) -> boo
 
 
 # ==============================================================================
-# 3. FUNGSI GABUNGAN - dipanggil oleh scheduler
+# 3. LOGGING RIWAYAT UPDATE (collection TERPISAH: weather_update_logs)
 # ==============================================================================
-def update_all_mountains_weather(mountain_names: list):
+# Sengaja dipisah dari weather_forecast/weather_history/mountain_coordinates
+# supaya data cuaca aktual tidak tercampur dengan data "meta" (kapan cron
+# jalan, berapa gunung berhasil/gagal, berapa lama prosesnya). Ini juga
+# memudahkan kalau nanti mau kasih TTL index khusus di log (misal auto-hapus
+# log yang lebih tua dari 90 hari) tanpa memengaruhi data cuaca.
+def log_update_run(summary: dict):
+    """Simpan satu entri log ke collection weather_update_logs."""
+    try:
+        coll = get_weather_db()["weather_update_logs"]
+        coll.insert_one({**summary, "logged_at": datetime.utcnow()})
+    except Exception as e:
+        # Kegagalan mencatat log TIDAK BOLEH menggagalkan proses update cuaca itu
+        # sendiri — cukup print supaya kelihatan di runtime logs Vercel/lokal.
+        print(f"[WEATHER][LOG] Gagal mencatat log update: {e}")
+
+
+def get_update_logs(limit: int = 20):
+    """
+    Ambil riwayat update terakhir, terbaru dulu. Berguna untuk endpoint
+    monitoring/admin (mis. menampilkan status cron terakhir di dashboard).
+    """
+    coll = get_weather_db()["weather_update_logs"]
+    cursor = coll.find({}, {"_id": 0}).sort("started_at", -1).limit(limit)
+    return list(cursor)
+
+
+# ==============================================================================
+# 4. FUNGSI GABUNGAN - dipanggil oleh scheduler
+# ==============================================================================
+def update_all_mountains_weather(mountain_names: list) -> dict:
     """
     mountain_names: list of string, contoh:
         [m.name for m in Mountain.query.all()]
     Tidak perlu lat/lon lagi — semua di-resolve otomatis dari nama.
+
+    Sekarang mengembalikan ringkasan (summary) hasil update, dan mencatatnya
+    ke collection weather_update_logs. Kalau ada error tak terduga di tengah
+    proses, tetap dicatat sebagai status 'error' sebelum di-raise ulang,
+    supaya kegagalan tidak jadi "senyap" tanpa jejak di Mongo.
     """
-    for name in mountain_names:
-        update_forecast_for_mountain(name)
-        update_history_for_mountain(name)
+    started_at = datetime.utcnow()
+    details = []
+
+    try:
+        for name in mountain_names:
+            forecast_ok = update_forecast_for_mountain(name)
+            history_ok = update_history_for_mountain(name)
+            details.append({
+                "mountain_name": normalize_name(name),
+                "forecast_ok": forecast_ok,
+                "history_ok": history_ok,
+            })
+    except Exception as e:
+        finished_at = datetime.utcnow()
+        summary = {
+            "status": "error",
+            "error_message": str(e),
+            "started_at": started_at,
+            "finished_at": finished_at,
+            "duration_seconds": (finished_at - started_at).total_seconds(),
+            "total_mountains": len(mountain_names),
+            "details": details,  # sebagian yang sempat berhasil sebelum error
+        }
+        log_update_run(summary)
+        raise  # tetap dilempar ulang supaya endpoint cron tahu ada kegagalan
+
+    finished_at = datetime.utcnow()
+    success_count = sum(1 for d in details if d["forecast_ok"] and d["history_ok"])
+    partial_count = sum(1 for d in details if d["forecast_ok"] != d["history_ok"])
+    failed_count = sum(1 for d in details if not d["forecast_ok"] and not d["history_ok"])
+
+    summary = {
+        "status": "success" if failed_count == 0 and partial_count == 0 else "partial_failure",
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "duration_seconds": (finished_at - started_at).total_seconds(),
+        "total_mountains": len(mountain_names),
+        "success_count": success_count,
+        "partial_count": partial_count,
+        "failed_count": failed_count,
+        "details": details,
+    }
+    log_update_run(summary)
+    print(f"[WEATHER][SUMMARY] {summary['status']}: "
+          f"{success_count} sukses, {partial_count} sebagian, {failed_count} gagal "
+          f"({summary['duration_seconds']:.1f}s)")
+    return summary
 
 
 # ==============================================================================
-# 4. FUNGSI BACA - dipanggil oleh endpoint API mobile
+# 5. FUNGSI BACA - dipanggil oleh endpoint API mobile
 # ==============================================================================
 def get_forecast_by_name(mountain_name: str):
     mountain_name = normalize_name(mountain_name)
@@ -388,7 +458,6 @@ def get_history_by_name(mountain_name: str, limit_days: int = 30):
         {"mountain_name": mountain_name}, {"_id": 0}
     )
     if doc and limit_days:
-        # Batasi jumlah data histori yang dikirim ke mobile (biar payload tidak berat)
         cutoff = (datetime.utcnow() - timedelta(days=limit_days)).isoformat()
         doc["history"] = [h for h in doc["history"] if h["datetime"] >= cutoff]
     return doc

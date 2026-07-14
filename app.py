@@ -1,36 +1,47 @@
 import os
 import uuid
+import random
+from datetime import timedelta, datetime
+from functools import wraps
+
+from dotenv import load_dotenv
+from flask import (
+    Flask, Blueprint, render_template, request, jsonify,
+    session, redirect, url_for, flash
+)
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
-from dotenv import load_dotenv
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash
-from models import db, User, Mountain, Basecamp, Equipment, Ticket, RentalTransaction
 from flask_jwt_extended import JWTManager, create_access_token, jwt_required, get_jwt_identity
+from flask_mail import Mail, Message
 from flasgger import Swagger
-from datetime import timedelta, datetime
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
-from flask_mail import Mail, Message
-import random
-import midtransclient
 from sqlalchemy import func
+from apscheduler.schedulers.background import BackgroundScheduler
+import midtransclient
 
-from flask import Blueprint, request, jsonify, session
-from functools import wraps
-from models import db, User, Mountain, Basecamp  # Sesuaikan dengan lokasi model Anda
-
-# [DIUBAH] Import helper upload ke Supabase Storage (menggantikan photo.save() lokal)
+from models import db, User, Mountain, Basecamp, Equipment, Ticket, RentalTransaction
 from storage_service import upload_file_to_supabase
+from weather_service import (
+    update_all_mountains_weather,
+    get_forecast_by_name,
+    get_history_by_name,
+    get_update_logs,
+    get_weather_db,
+)
 
 load_dotenv()
 app = Flask(__name__)
 admin_bp = Blueprint('admin', __name__)
 
+# ==========================================
+# KONFIGURASI EMAIL
+# ==========================================
 app.config['MAIL_SERVER'] = 'smtp.gmail.com'
 app.config['MAIL_PORT'] = 587
 app.config['MAIL_USE_TLS'] = True
-app.config['MAIL_USERNAME'] = os.getenv('EMAIL')  # Ganti email Anda
-app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')  # Gunakan App Password 16 karakter
+app.config['MAIL_USERNAME'] = os.getenv('EMAIL')
+app.config['MAIL_PASSWORD'] = os.getenv('MAIL_PASSWORD')  # App Password 16 karakter
 app.config['MAIL_DEFAULT_SENDER'] = os.getenv('EMAIL')
 
 mail = Mail(app)
@@ -42,7 +53,6 @@ mail = Mail(app)
 UPLOAD_FOLDER = 'static/uploads/profiles/'
 app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 
-
 # ==========================================
 # INISIALISASI MIDTRANS SNAP
 # ==========================================
@@ -53,7 +63,7 @@ snap = midtransclient.Snap(
 )
 
 # ==========================================
-# 1. KONFIGURASI SUPABASE & KEAMANAN VIA .ENV
+# KONFIGURASI SUPABASE & KEAMANAN VIA .ENV
 # ==========================================
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('SUPABASE_DATABASE_URI')
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
@@ -67,11 +77,6 @@ SUPABASE_KEY = os.getenv('SUPABASE_KEY')
 
 db.init_app(app)
 jwt = JWTManager(app)
-
-from apscheduler.schedulers.background import BackgroundScheduler
-from weather_service import (
-    update_all_mountains_weather, get_forecast_by_name, get_history_by_name
-)
 
 
 def serialize_user(user):
@@ -87,7 +92,7 @@ def serialize_user(user):
 
 
 # ==========================================
-# [DIUBAH] SCHEDULER CUACA — HANYA UNTUK LOCAL DEVELOPMENT
+# SCHEDULER CUACA — HANYA UNTUK LOCAL DEVELOPMENT
 # ==========================================
 # Vercel otomatis mengisi env var VERCEL=1 di runtime-nya. Serverless function
 # tidak punya proses yang hidup terus-menerus, jadi BackgroundScheduler
@@ -115,13 +120,124 @@ if not IS_VERCEL:
         scheduler.start()
         print("[SCHEDULER] Weather scheduler started (local mode)")
 
+# Didaftarkan di vercel.json (bagian "crons") supaya Vercel yang memanggil
+# endpoint /api/cron/update-weather secara terjadwal, menggantikan
+# BackgroundScheduler di atas saat jalan di production.
+CRON_SECRET = os.getenv('CRON_SECRET')
+
 
 # ==========================================
-# [BARU] ENDPOINT CRON UNTUK VERCEL
+# 1. DASHBOARD & CUACA (grafik interaktif admin)
 # ==========================================
-# Didaftarkan di vercel.json (bagian "crons") supaya Vercel yang memanggil
-# endpoint ini secara terjadwal, menggantikan BackgroundScheduler di atas.
-CRON_SECRET = os.getenv('CRON_SECRET')
+# Endpoint di bagian ini HANYA baca dari cache MongoDB (weather_forecast /
+# weather_history / weather_update_logs), tidak memanggil OpenWeatherMap /
+# Open-Meteo langsung. Jadi response-nya cepat dan tidak makan quota API.
+
+@app.route("/api/dashboard-mountains", methods=["GET"])
+def api_dashboard_mountains():
+    """
+    Kembalikan daftar nama gunung yang SUDAH punya data cuaca ter-cache,
+    dipakai untuk mengisi dropdown pemilih gunung di dashboard.
+    """
+    if "user_role" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    weather_db = get_weather_db()
+    names = weather_db["weather_forecast"].distinct("mountain_name")
+    mountains = [{"value": n, "label": n.title()} for n in sorted(names)]
+    return jsonify({"mountains": mountains})
+
+
+@app.route("/api/dashboard-weather", methods=["GET"])
+def api_dashboard_weather():
+    """
+    Query params:
+      - mountain: nama gunung (wajib)
+      - mode: 'forecast' (default, 5 hari ke depan per 3 jam)
+               atau 'history' (per jam, dibatasi `days` terakhir)
+      - days: jumlah hari ke belakang untuk mode history (default 7)
+
+    Response diformat supaya langsung cocok dipakai Chart.js:
+      { "labels": [...], "temp": [...], "humidity": [...], "condition": [...] }
+    """
+    if "user_role" not in session:
+        return jsonify({"error": "Unauthorized"}), 401
+
+    mountain = request.args.get("mountain")
+    mode = request.args.get("mode", "forecast")
+    days = int(request.args.get("days", 7))
+
+    if not mountain:
+        return jsonify({"error": "Parameter 'mountain' wajib diisi"}), 400
+
+    if mode == "history":
+        doc = get_history_by_name(mountain, limit_days=days)
+        records = doc.get("history", []) if doc else []
+    else:
+        doc = get_forecast_by_name(mountain)
+        records = doc.get("forecast", []) if doc else []
+
+    if not records:
+        return jsonify({
+            "labels": [], "temp": [], "humidity": [], "condition": [],
+            "message": f"Belum ada data cuaca untuk '{mountain}'. "
+                       f"Pastikan scheduler sudah pernah jalan untuk gunung ini."
+        })
+
+    return jsonify({
+        "labels": [r["datetime"] for r in records],
+        "temp": [r["temp"] for r in records],
+        "humidity": [r["humidity"] for r in records],
+        "condition": [r["condition"] for r in records],
+    })
+
+
+@app.route("/api/cron/update-weather", methods=["GET"])
+def cron_update_weather():
+    """
+    Dipanggil Vercel Cron (production) atau bisa dites manual (local).
+    Memanfaatkan summary yang dikembalikan update_all_mountains_weather() —
+    summary ini JUGA sudah otomatis dicatat oleh weather_service.py ke
+    collection terpisah `weather_update_logs`.
+    """
+    auth_header = request.headers.get('Authorization')
+    if CRON_SECRET and auth_header != f"Bearer {CRON_SECRET}":
+        return jsonify({"message": "Unauthorized"}), 401
+
+    mountain_names = [m.name for m in Mountain.query.all()]
+
+    try:
+        summary = update_all_mountains_weather(mountain_names)
+    except Exception as e:
+        return jsonify({
+            "message": "Update cuaca gagal",
+            "error": str(e),
+        }), 500
+
+    return jsonify({
+        "message": "Update cuaca selesai",
+        "total_gunung": summary["total_mountains"],
+        "status": summary["status"],
+        "sukses": summary["success_count"],
+        "sebagian": summary["partial_count"],
+        "gagal": summary["failed_count"],
+        "durasi_detik": round(summary["duration_seconds"], 1),
+    }), 200
+
+
+@app.route("/api/cron/update-weather/logs", methods=["GET"])
+def api_cron_update_weather_logs():
+    """
+    Lihat riwayat N run terakhir dari cron update cuaca, dibaca dari
+    collection terpisah `weather_update_logs`.
+    """
+    if "user_role" not in session or session.get("user_role") != "super_admin":
+        return jsonify({"error": "Unauthorized"}), 401
+
+    limit = int(request.args.get("limit", 20))
+    logs = get_update_logs(limit=limit)
+    return jsonify({"logs": logs})
+
 
 @app.route('/api/dashboard-stats')
 def api_dashboard_stats():
@@ -131,7 +247,6 @@ def api_dashboard_stats():
     user = User.query.get(session['user_id'])
     role = user.role
 
-    # --- Tentukan rentang tanggal ---
     range_param = request.args.get('range', '7days')
     today = datetime.now().date()
 
@@ -154,9 +269,6 @@ def api_dashboard_stats():
     pendapatan_tiket = 0
     pendapatan_sewa = 0
 
-    # ==========================================================
-    # QUERY TIKET (super_admin & basecamp_admin)
-    # ==========================================================
     tiket_data = {}
     if role in ['super_admin', 'basecamp_admin']:
         tiket_query = db.session.query(
@@ -175,9 +287,6 @@ def api_dashboard_stats():
         tiket_query = tiket_query.group_by(func.date(Ticket.created_at))
         tiket_data = {row.tgl: row for row in tiket_query.all()}
 
-    # ==========================================================
-    # QUERY SEWA (super_admin & vendor)
-    # ==========================================================
     sewa_data = {}
     if role in ['super_admin', 'vendor']:
         sewa_query = db.session.query(
@@ -196,9 +305,6 @@ def api_dashboard_stats():
         sewa_query = sewa_query.group_by(func.date(RentalTransaction.created_at))
         sewa_data = {row.tgl: row for row in sewa_query.all()}
 
-    # ==========================================================
-    # Susun label per hari (biar hari kosong tetap muncul sbg 0)
-    # ==========================================================
     current = start_date
     while current <= end_date:
         labels.append(current.strftime('%d %b'))
@@ -231,41 +337,6 @@ def api_dashboard_stats():
         'pendapatan_sewa': pendapatan_sewa
     })
 
-@app.route('/api/cron/update-weather', methods=['GET'])
-def cron_update_weather():
-    # Vercel Cron otomatis mengirim header "Authorization: Bearer <CRON_SECRET>"
-    # kalau env var CRON_SECRET sudah diset di project Vercel Anda.
-    # Ini mencegah orang lain sembarangan memicu endpoint ini dari luar.
-    auth_header = request.headers.get('Authorization')
-    if CRON_SECRET and auth_header != f"Bearer {CRON_SECRET}":
-        return jsonify({"message": "Unauthorized"}), 401
-
-    mountain_names = [m.name for m in Mountain.query.all()]
-    update_all_mountains_weather(mountain_names)
-    return jsonify({
-        "message": "Update cuaca selesai",
-        "total_gunung": len(mountain_names)
-    }), 200
-
-# --- KONFIGURASI SWAGGER LENGKAP ---
-swagger_template = {
-    "swagger": "2.0",
-    "info": {
-        "title": "StagingAI / Summit Guide API",
-        "description": "Dokumentasi RESTful API untuk integrasi Backend Flask dengan Aplikasi Mobile (Flutter).",
-        "version": "1.0.0"
-    },
-    "securityDefinitions": {
-        "Bearer": {
-            "type": "apiKey",
-            "name": "Authorization",
-            "in": "header",
-            "description": "Masukkan token JWT dengan format: <b>Bearer &lt;token_anda&gt;</b>"
-        }
-    }
-}
-swagger = Swagger(app, template=swagger_template)
-
 
 # ==========================================
 # 2. WEB VIEW ROUTES (DASHBOARD ADMIN BROWSER)
@@ -297,11 +368,6 @@ def web_login():
             flash('Email atau password salah!', 'danger')
 
     return render_template('login.html')
-
-
-from flask_mail import Message
-import random
-from datetime import datetime, timedelta
 
 
 @app.route('/register', methods=['GET', 'POST'])
@@ -408,14 +474,10 @@ def user_profile():
     if request.method == 'POST':
         action = request.form.get('action')
 
-        # --- AKSI 1: UPDATE PROFIL & FOTO ---
         if action == 'update_profile':
             user.name = request.form.get('name')
             user.phone = request.form.get('phone')
 
-            # [DIUBAH] Upload foto profil sekarang ke Supabase Storage,
-            # bukan disimpan ke disk lokal (photo.save()) yang tidak
-            # persist di Vercel.
             photo = request.files.get('profile_photo')
             if photo and photo.filename != '':
                 uploaded_url = upload_file_to_supabase(photo, folder="profiles")
@@ -426,7 +488,6 @@ def user_profile():
             session['user_name'] = user.name
             flash('Profil berhasil diperbarui!', 'success')
 
-        # --- AKSI 2: GANTI PASSWORD ---
         elif action == 'update_password':
             old_password = request.form.get('old_password')
             new_password = request.form.get('new_password')
@@ -464,11 +525,6 @@ def upgrade_account():
     user.basecamp_id = basecamp_id
     user.ktp_number = ktp_number
 
-    # [DIUBAH] Folder lokal UPLOAD_DOC_FOLDER tidak dipakai lagi untuk
-    # menyimpan file — semua upload dokumen (KTP, surat tugas) sekarang
-    # lewat Supabase Storage.
-
-    # Simpan KTP (karena Vendor & Basecamp sama-sama butuh KTP)
     ktp_file = request.files.get('ktp_image')
     if ktp_file and ktp_file.filename != '':
         uploaded_url = upload_file_to_supabase(ktp_file, folder="documents")
@@ -482,7 +538,6 @@ def upgrade_account():
         user.role = 'vendor'
 
     elif target_role == 'basecamp_admin':
-        # [DIUBAH] Upload surat tugas ke Supabase Storage
         surat_file = request.files.get('official_letter')
         if surat_file and surat_file.filename != '':
             uploaded_url = upload_file_to_supabase(surat_file, folder="documents")
@@ -566,7 +621,9 @@ def basecamp_admin_required(f):
     return decorated_function
 
 
-# --- TAMPILAN HALAMAN ADMIN ---
+# ==========================================
+# 3. HALAMAN & AKSI ADMIN
+# ==========================================
 
 @app.route('/admin/vendors', methods=['GET'])
 @admin_required
@@ -599,6 +656,7 @@ def verify_gpx(mountain_id):
     db.session.commit()
     return jsonify({"message": f"GPX untuk gunung {mountain.name} telah diverifikasi."})
 
+
 @admin_bp.route('/admin/mountains/<int:mountain_id>/update', methods=['POST'])
 @admin_required
 def update_mountain(mountain_id):
@@ -617,7 +675,6 @@ def update_mountain(mountain_id):
     mountain.location_long = float(lng) if lng else None
     mountain.description = description
 
-    # Ganti file GPX hanya jika user upload file baru
     gpx_file = request.files.get('gpx_file')
     if gpx_file and gpx_file.filename != '':
         uploaded_url = upload_file_to_supabase(gpx_file, folder="gpx")
@@ -677,7 +734,6 @@ def add_mountain():
             flash('Nama gunung wajib diisi!', 'danger')
             return redirect(url_for('add_mountain'))
 
-        # [DIUBAH] Upload GPX ke Supabase Storage, bukan disimpan ke disk lokal
         gpx_file = request.files.get('gpx_file')
         gpx_path = None
 
@@ -730,6 +786,10 @@ def add_basecamp():
 
     return render_template('add_basecamp.html', mountains=mountains)
 
+
+# ==========================================
+# 4. HALAMAN & AKSI ADMIN BASECAMP
+# ==========================================
 
 @app.route('/basecamp/manage', methods=['GET', 'POST'])
 @basecamp_admin_required
@@ -803,6 +863,10 @@ def vendor_required(f):
     return decorated_function
 
 
+# ==========================================
+# 5. HALAMAN & AKSI VENDOR
+# ==========================================
+
 @app.route('/vendor/equipments', methods=['GET', 'POST'])
 @vendor_required
 def manage_equipments():
@@ -818,7 +882,6 @@ def manage_equipments():
             flash('Harap isi semua data peralatan!', 'warning')
             return redirect(url_for('manage_equipments'))
 
-        # [DIUBAH] Upload foto alat ke Supabase Storage, bukan disk lokal
         image_url = None
         if image_file and image_file.filename != '':
             image_url = upload_file_to_supabase(image_file, folder="equipments")
@@ -879,6 +942,10 @@ def update_rental_status(tx_id):
     flash('Status penyewaan berhasil diperbarui!', 'success')
     return redirect(url_for('vendor_transactions'))
 
+
+# ==========================================
+# 6. AUTH API (MOBILE / FLUTTER)
+# ==========================================
 
 @app.route('/api/auth/google', methods=['POST'])
 def api_google_login():
@@ -1194,9 +1261,6 @@ def api_update_profile():
     if phone:
         user.phone = phone
 
-    # [DIUBAH] Upload foto profil mobile ke Supabase Storage,
-    # bukan disimpan ke disk lokal (photo.save()) yang tidak
-    # persist di Vercel.
     if photo and photo.filename != '':
         uploaded_url = upload_file_to_supabase(photo, folder="profiles")
         if uploaded_url:
@@ -1223,19 +1287,18 @@ def api_update_profile():
             "profile_photo": user.profile_photo
         }
     }), 200
-    
-    
-    
+
+
 # ==========================================
-# ENDPOINT UNTUK APLIKASI MOBILE (Flutter)
+# 7. CUACA UNTUK APLIKASI MOBILE (Flutter)
 # ==========================================
+
 @app.route('/api/weather/forecast', methods=['GET'])
 def api_weather_forecast():
     mountain_name = request.args.get('name', '')
     if not mountain_name:
         return jsonify({"message": "Parameter 'name' diperlukan"}), 400
-    
-    from weather_service import get_forecast_by_name
+
     data = get_forecast_by_name(mountain_name)
     if not data:
         return jsonify({"message": "Data forecast belum tersedia untuk gunung ini"}), 404
@@ -1247,18 +1310,16 @@ def api_weather_history():
     mountain_name = request.args.get('name', '')
     if not mountain_name:
         return jsonify({"message": "Parameter 'name' diperlukan"}), 400
-    
-    from weather_service import get_history_by_name
+
     data = get_history_by_name(mountain_name)
     if not data:
         return jsonify({"message": "Data histori belum tersedia untuk gunung ini"}), 404
     return jsonify(data), 200
 
 
-
-# ==========================================================
-# 2. MOUNTAIN, MAP & TICKETING
-# ==========================================================
+# ==========================================
+# 8. MOUNTAIN, MAP & TICKETING
+# ==========================================
 
 @app.route('/api/mountains', methods=['GET'])
 @jwt_required()
@@ -1442,9 +1503,9 @@ def api_my_tickets():
     return jsonify(result), 200
 
 
-# ==========================================================
-# 3. RENTAL (BARANG & PORTER)
-# ==========================================================
+# ==========================================
+# 9. RENTAL (BARANG & PORTER)
+# ==========================================
 
 @app.route('/api/rental/catalog', methods=['GET'])
 @jwt_required()
@@ -1586,7 +1647,8 @@ def api_checkout():
     except Exception as e:
         db.session.rollback()
         return jsonify({"message": "Terjadi kesalahan server", "error": str(e)}), 500
-    
+
+
 @app.route('/api/rental/my', methods=['GET'])
 @jwt_required()
 def api_my_rentals():
@@ -1634,8 +1696,8 @@ def api_my_rentals():
             "start_date": str(tx.start_date),
             "end_date": str(tx.end_date),
             "total_price": float(tx.total_price),
-            "status": tx.status,                 # pending / active / completed / cancelled
-            "payment_status": tx.payment_status,  # pending / paid / failed
+            "status": tx.status,
+            "payment_status": tx.payment_status,
             "sedang_disewa": tx.status == 'active' and tx.payment_status == 'paid',
             "belum_dikembalikan": tx.status == 'active',
             "terlambat_dikembalikan": is_overdue,
